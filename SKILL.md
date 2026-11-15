@@ -6,7 +6,7 @@ description: >-
 
 # 學校 AI 智慧社團選社系統建立指南 (`ai-club-selector`)
 
-本 Skill 提供完整的「Google Apps Script + Google Sheets + Gemini 2.5 Flash + 單頁響應式前端」智慧社團選社系統標準作業流程與可複用範本（內含 25 項後端回歸測試）。
+本 Skill 提供完整的「Google Apps Script + Google Sheets + Gemini 2.5 Flash + 單頁響應式前端」智慧社團選社系統標準作業流程與可複用範本（內含 31 項後端回歸測試）。
 
 ---
 
@@ -57,8 +57,9 @@ powershell -ExecutionPolicy Bypass -File "C:\Users\MAO YU REN\.gemini\config\ski
 ### 階段三：客製化調整要點
 
 依學校需求微調目標資料夾內的檔案：
-1. **社團目錄與 AI 探索方向**：
-   * 後端社團清單位於 `Code.gs` 的 `CANONICAL_CLUBS`（欄位：`[名稱, 上限, 已錄取, 教師, 地點, 簡介, 先備要求與材料費, 類別]`）。
+1. **社團目錄、分年級開放設定與 AI 探索方向**：
+   * 後端社團清單位於 `Code.gs` 的 `CANONICAL_CLUBS`（9 欄格式：`[名稱, 上限, 已錄取, 教師, 地點, 簡介, 先備要求與材料費, 類別, 開放年級]`，`開放年級` 可設為 `'不限'` 或 `'7'`、`'7,8'`、`'8,9'` 等）。
+   * 系統支援**舊版 8 欄工作表自動無痛升級為 9 欄**，並於首頁免登入預覽、學生選社（預設開啟「僅看本年級可選」並對跨年級社團灰階防呆鎖定）、Gemini 2.5 顧問、2D 志願分發與後台人工轉社全面執行年級資格檢核。
    * 若大幅更改社團種類，應同步調整 `index.html` 的 `AI_EXPLORATION_TAGS` 與 `Code.gs` 的 `ruleBasedRecommendFallback()` 關鍵字規則，確保 Gemini 備援排序準確。
 2. **視覺與使用者體驗設計準則**：
    * **多主題支援**：維持 `index.html` 的 3 組校園主題（湛藍領航 `indigo` / 翠綠森活 `mint` / 晨曦書香 `amber`）CSS 變數。

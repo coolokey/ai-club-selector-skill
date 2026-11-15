@@ -45,7 +45,7 @@ function createGasMockEnvironment(options) {
   // 模擬系統設定
   const configRows = [
     ['設定項目', '設定值', '說明'],
-    ['SYSTEM_TITLE', '示範國中 AI 智慧社團選社系統', '系統標題'],
+    ['SYSTEM_TITLE', '大溪國中 AI 智慧社團選社系統', '系統標題'],
     ['SELECTION_MODE', 'instant', '選社模式'],
     ['OPEN_TIME', '', '開放時間'],
     ['CLOSE_TIME', '', '截止時間'],
@@ -650,7 +650,7 @@ test('14. 後台統一管理網頁標題與 Google 試算表檔名，並防呆�
 
   // 初始狀態：後台可偵測試算表檔名與系統設定標題不同
   const initialDash = context.getAdminDashboardData(token);
-  assert.equal(initialDash.settings.title, '示範國中 AI 智慧社團選社系統');
+  assert.equal(initialDash.settings.title, '大溪國中 AI 智慧社團選社系統');
   assert.equal(initialDash.settings.spreadsheetName, '114學年度社團選社系統');
 
   // 未授權呼叫不得更名試算表或竄改標題
@@ -665,18 +665,18 @@ test('14. 後台統一管理網頁標題與 Google 試算表檔名，並防呆�
   assert.equal(mockSpreadsheet.getName(), '114學年度社團選社系統');
 
   // 透過後台儲存統一名稱後，系統設定與試算表檔名同步一致
-  const saveRes = context.saveSystemSettings(token, { title: '114學年度 示範國中社團選社系統' });
+  const saveRes = context.saveSystemSettings(token, { title: '114學年度 大溪國中社團選社系統' });
   assert.equal(saveRes.status, 'success');
   assert.equal(saveRes.spreadsheetRenamed, true);
-  assert.equal(saveRes.title, '114學年度 示範國中社團選社系統');
-  assert.equal(saveRes.spreadsheetName, '114學年度 示範國中社團選社系統');
-  assert.equal(mockSpreadsheet.getName(), '114學年度 示範國中社團選社系統');
-  assert.equal(context.getSystemSettings().title, '114學年度 示範國中社團選社系統');
-  assert.equal(context.getServerStatus().title, '114學年度 示範國中社團選社系統');
-  assert.equal(context.getAdminDashboardData(token).settings.spreadsheetName, '114學年度 示範國中社團選社系統');
+  assert.equal(saveRes.title, '114學年度 大溪國中社團選社系統');
+  assert.equal(saveRes.spreadsheetName, '114學年度 大溪國中社團選社系統');
+  assert.equal(mockSpreadsheet.getName(), '114學年度 大溪國中社團選社系統');
+  assert.equal(context.getSystemSettings().title, '114學年度 大溪國中社團選社系統');
+  assert.equal(context.getServerStatus().title, '114學年度 大溪國中社團選社系統');
+  assert.equal(context.getAdminDashboardData(token).settings.spreadsheetName, '114學年度 大溪國中社團選社系統');
 
   // 相同名稱再次儲存不會重複觸發更名
-  const repeatRes = context.saveSystemSettings(token, { title: '114學年度 示範國中社團選社系統' });
+  const repeatRes = context.saveSystemSettings(token, { title: '114學年度 大溪國中社團選社系統' });
   assert.equal(repeatRes.status, 'success');
   assert.equal(repeatRes.spreadsheetRenamed, false);
 });
@@ -1081,5 +1081,258 @@ test('25. ruleBasedRecommendFallback 涵蓋多元探索方向與避暑/免額外
   assert.equal(resDrone.status, 'success');
   assert.equal(resDrone.data.recommendations[0].clubName, '無人機飛行與空拍攝影社');
 });
+
+test('26. saveClub 支援開放年級設定並自動將舊版 8 欄社團設定工作表升級為 9 欄', () => {
+  const { context, sheets } = createGasMockEnvironment();
+  const token = context.loginAdmin('test-password').token;
+
+  // 模擬舊版 8 欄社團設定工作表（沒有第 9 欄「開放年級」）
+  const legacyHeaders = sheets['社團設定'].getDataRange().getValues()[0];
+  assert.equal(legacyHeaders.length, 8);
+
+  const saveRes = context.saveClub(token, {
+    name: '高年級無人機進階社',
+    limit: 20,
+    teacher: '許組長',
+    location: '科技研討室',
+    desc: '進階空拍操控',
+    requirement: '無材料費',
+    category: '科技創客',
+    targetGrades: '8,9'
+  });
+  assert.equal(saveRes.status, 'success');
+
+  const updatedHeaders = sheets['社團設定'].getDataRange().getValues()[0];
+  assert.equal(updatedHeaders[8], '開放年級');
+
+  const clubs = context.getClubList();
+  const added = clubs.find(c => c.name === '高年級無人機進階社');
+  assert.ok(added);
+  assert.equal(added.targetGrades, '8,9');
+
+  const existing = clubs.find(c => c.name === 'AI機器人創客社');
+  assert.ok(existing);
+  assert.equal(existing.targetGrades, '不限');
+
+  // 編輯現有社團只開放給 7 年級
+  const editRes = context.saveClub(token, {
+    originalName: 'AI機器人創客社',
+    name: 'AI機器人創客社',
+    limit: 18,
+    teacher: '李組長',
+    location: '科技創客教室',
+    desc: '機器人與程式',
+    requirement: '材料費 200 元',
+    category: '科技創客',
+    targetGrades: '7'
+  });
+  assert.equal(editRes.status, 'success');
+  assert.equal(editRes.clubs.find(c => c.name === 'AI機器人創客社').targetGrades, '7');
+});
+
+test('27. submitSelection 與 submitPreferences 須嚴格阻擋不符學生年級資格的選社請求', () => {
+  const { context, sheets } = createGasMockEnvironment();
+  const token = context.loginAdmin('test-password').token;
+
+  context.saveClub(token, {
+    name: '九年級進階專題社',
+    limit: 20,
+    teacher: '林老師',
+    location: '專題教室',
+    desc: '專題研究',
+    requirement: '無額外收費',
+    category: '科技創客',
+    targetGrades: '9'
+  });
+
+  // 701 學生（王大明 11470101）嘗試即時搶額報名限 9 年級社團 -> 應被拒絕
+  const stuLogin = context.verifyAndGetClubs('11470101', '67890101');
+  assert.equal(stuLogin.status, 'success');
+  const blockedRes = context.submitSelection(stuLogin.token, '九年級進階專題社');
+  assert.equal(blockedRes.status, 'error');
+  assert.match(blockedRes.message, /限 9 年級/);
+
+  // 新增 901 學生嘗試報名同一社團 -> 應成功
+  sheets['學生名單'].appendRow([
+    '11290101', '九年級生', '901', '01', '5678', '0202', '56780202',
+    'g9@test.edu.tw', '', '', '', '', '', '', '', ''
+  ]);
+  const g9Login = context.verifyAndGetClubs('11290101', '56780202');
+  assert.equal(g9Login.status, 'success');
+  const allowRes = context.submitSelection(g9Login.token, '九年級進階專題社');
+  assert.equal(allowRes.status, 'success');
+
+  // 切換至志願選填模式測試 submitPreferences
+  assert.equal(context.saveSystemSettings(token, { mode: 'preferences' }).status, 'success');
+  const prefBlocked = context.submitPreferences(stuLogin.token, 'AI機器人創客社', '九年級進階專題社', '');
+  assert.equal(prefBlocked.status, 'error');
+  assert.match(prefBlocked.message, /限 9 年級/);
+
+  const prefAllowed = context.submitPreferences(stuLogin.token, 'AI機器人創客社', '熱血籃球戰術社', '');
+  assert.equal(prefAllowed.status, 'success');
+});
+
+test('28. aiConsultantRecommend 須過濾不開放給學生所屬年級的社團', () => {
+  const { context } = createGasMockEnvironment();
+  const token = context.loginAdmin('test-password').token;
+
+  context.seedCanonicalClubsToSheet_(context.SpreadsheetApp.getActiveSpreadsheet(), true);
+  // 將無人機社設為僅限 8、9 年級
+  const drone = context.getClubList().find(c => c.name === '無人機飛行與空拍攝影社');
+  context.saveClub(token, {
+    ...drone,
+    originalName: drone.name,
+    targetGrades: '8,9'
+  });
+
+  // 7 年級學生詢問無人機 -> 不應出現無人機社
+  const res7 = context.aiConsultantRecommend('對操控無人機穿越障礙與空拍攝影感興趣', '701');
+  assert.equal(res7.status, 'success');
+  assert.equal(
+    res7.data.recommendations.some(r => r.clubName === '無人機飛行與空拍攝影社'),
+    false,
+    '7年級推薦結果不得包含僅限8、9年級之無人機社'
+  );
+
+  // 8 年級學生詢問無人機 -> 應推薦無人機社
+  const res8 = context.aiConsultantRecommend('對操控無人機穿越障礙與空拍攝影感興趣', '802');
+  assert.equal(res8.status, 'success');
+  assert.equal(res8.data.recommendations[0].clubName, '無人機飛行與空拍攝影社');
+});
+
+test('29. runAiSmartAllocation 於志願輪次與落選行政分流皆須遵守開放年級限制', () => {
+  const { context, sheets } = createGasMockEnvironment();
+  const token = context.loginAdmin('test-password').token;
+
+  // 清空社團設定並建立 2 個社團：A 限 8,9 年級、B 僅限 7 年級
+  const clubSheet = sheets['社團設定'];
+  clubSheet.clearContents();
+  clubSheet.getRange(1, 1, 3, 9).setValues([
+    ['社團名稱', '人數上限', '已錄取人數', '授課教師', '活動地點', '社團簡介', '先備要求與材料費', '社團類別', '開放年級'],
+    ['高年級進階無人機', 10, 0, '許師', '研討室', '空拍', '無', '科技創客', '8,9'],
+    ['七年級新生探索社', 10, 0, '張師', '教室', '探索', '無', '生活服務', '7']
+  ]);
+
+  // 設定 701 學生全部把高年級社放第一志願（沒有可錄取志願，測試兜底分流也只分到 7 年級社團）
+  const stuSheet = sheets['學生名單'];
+  const sVals = stuSheet.getDataRange().getDisplayValues();
+  // 清空已有錄取並填入志願為不符年級的社團
+  for (let r = 2; r <= sVals.length; r++) {
+    stuSheet.getRange(r, 9, 1, 6).setValues([['高年級進階無人機', '', '', '', '', '']]);
+  }
+  // 加入一位 801 學生將高年級社放第一志願
+  stuSheet.appendRow([
+    '11380101', '八年級生', '801', '01', '9012', '0303', '90120303',
+    'g8@test.edu.tw', '高年級進階無人機', '', '', '', '', '', '', ''
+  ]);
+
+  const preview = context.runAiSmartAllocation(token);
+  assert.equal(preview.status, 'preview');
+  const applyRes = context.runAiSmartAllocation(token, preview.previewToken);
+  assert.equal(applyRes.status, 'success');
+
+  const finalRows = stuSheet.getDataRange().getDisplayValues();
+  for (let i = 1; i < finalRows.length; i++) {
+    const cls = finalRows[i][2];
+    const assigned = finalRows[i][11];
+    const locked = finalRows[i][14];
+    if (String(cls).startsWith('7') && !locked) {
+      assert.notEqual(assigned, '高年級進階無人機', '7年級生無論志願或分流皆不可被分配到限8、9年級之社團');
+      assert.equal(assigned, '七年級新生探索社');
+    }
+    if (String(cls).startsWith('8')) {
+      assert.equal(assigned, '高年級進階無人機');
+    }
+  }
+});
+
+test('30. 管理者密碼錯誤提示為可讀字串且系統設定自訂密碼可覆蓋預設 admin888', () => {
+  const { context, sheets } = createGasMockEnvironment();
+
+  // 錯誤密碼不得回傳 [object Object]，須回傳含剩餘次數的可讀文字
+  const wrongRes = context.loginAdmin('wrong-password-123');
+  assert.equal(wrongRes.status, 'error');
+  assert.equal(typeof wrongRes.message, 'string');
+  assert.ok(!wrongRes.message.includes('[object Object]'));
+  assert.match(wrongRes.message, /管理密碼錯誤/);
+
+  // 確認「管理者名單」仍為預設 admin888 時，若「系統設定!ADMIN_PASSWORD」已改為自訂密碼，應優先採用之
+  const adminSheet = sheets['管理者名單'];
+  assert.ok(adminSheet);
+  adminSheet.getRange(2, 3).setValue('admin888');
+  const cfgSheet = sheets['系統設定'];
+  const cfgRows = cfgSheet.getDataRange().getValues();
+  const cfgPwdIdx = cfgRows.findIndex(r => String(r[0] || '').trim() === 'ADMIN_PASSWORD');
+  if (cfgPwdIdx >= 1) {
+    cfgSheet.getRange(cfgPwdIdx + 1, 2).setValue('CustomSheetPass99');
+  } else {
+    cfgSheet.appendRow(['ADMIN_PASSWORD', 'CustomSheetPass99', '後台管理密碼']);
+  }
+
+  const okRes = context.loginAdmin('CustomSheetPass99');
+  assert.equal(okRes.status, 'success', okRes.message || '');
+  assert.equal(okRes.isDefault, false);
+  assert.ok(okRes.token);
+
+  const dash = context.getAdminDashboardData(okRes.token);
+  assert.equal(dash.status, 'success');
+  assert.ok(dash.stats);
+  assert.equal(typeof dash.stats.totalStudents, 'number');
+});
+
+test('31. 中文班級年級解析、人工轉社跨年級防護、導師端保障生狀態與三志願退選清除', () => {
+  const { context, sheets } = createGasMockEnvironment();
+
+  // (1) 中文班級名稱如「八年七班」、「九年八班」不可因含七/八班號誤判年級
+  assert.equal(context.extractStudentGrade_('八年七班'), '8');
+  assert.equal(context.extractStudentGrade_('九年七班'), '9');
+  assert.equal(context.extractStudentGrade_('九年八班'), '9');
+  assert.equal(context.extractStudentGrade_('七年九班'), '7');
+
+  // (2) 預設 28 社團載入後，熱門流行樂團與合奏社應帶有 '8,9' 年級限制
+  const adminToken = context.loginAdmin('test-password').token;
+  context.seedCanonicalClubs(adminToken, true);
+  const catalog = context.getPublicClubCatalog();
+  const bandClub = catalog.clubs.find(c => c.name === '熱門流行樂團與合奏社');
+  assert.ok(bandClub);
+  assert.equal(bandClub.targetGrades, '8,9');
+
+  // (3) 人工轉社未勾選超額特案時，701 班學生不可轉入限 8,9 年級的熱音社；勾選後可特案安置
+  const blockedTransfer = context.adminTransferStudentClub(adminToken, '11470101', '熱門流行樂團與合奏社', '家長申請', false);
+  assert.equal(blockedTransfer.status, 'error');
+  assert.match(blockedTransfer.message, /僅開放/);
+
+  const forcedTransfer = context.adminTransferStudentClub(adminToken, '11470101', '熱門流行樂團與合奏社', '特殊生專案安置', true);
+  assert.equal(forcedTransfer.status, 'success');
+
+  // (4) 導師端查詢班級進度時，具「保障身分鎖定」（11470103 張志豪）的學生應計入已完成選社，不列入未選催繳名單
+  const hrRes = context.getHomeroomClassData('701', adminToken);
+  assert.equal(hrRes.status, 'success');
+  assert.ok(hrRes.enrolledList.some(s => s.studentId === '11470103' && s.club.includes('校隊保障')));
+  assert.ok(!hrRes.unassignedList.some(s => s.studentId === '11470103'));
+
+  // (5) 三志願模式下，學生點擊重新改選 (cancelSelection) 應一併清除已登記的前三志願
+  context.saveSystemSettings(adminToken, {
+    title: '大溪國中 AI 智慧社團選社系統',
+    mode: 'preferences',
+    openTime: '',
+    closeTime: '',
+    aiAdvisorEnabled: true,
+    maxPerClass: 2,
+    emailNotificationEnabled: true
+  });
+  const stuLogin = context.verifyAndGetClubs('11470102', '67890202');
+  assert.equal(stuLogin.status, 'success');
+  const prefSub = context.submitPreferences(stuLogin.token, 'AI機器人創客社', '熱血籃球戰術社', '數位動漫與繪畫社');
+  assert.equal(prefSub.status, 'success');
+
+  const cancelRes = context.cancelSelection(stuLogin.token);
+  assert.equal(cancelRes.status, 'success');
+  assert.equal(cancelRes.student.pref1, '');
+  assert.equal(cancelRes.student.pref2, '');
+  assert.equal(cancelRes.student.pref3, '');
+});
+
+
 
 
